@@ -1,9 +1,9 @@
-name: Mise à jour Quotidienne Ebooxly
+name: 📚 Ebooxly Auto-Update
 
 on:
   schedule:
-    # Se lance tous les jours à 08h00 UTC
-    - cron: '0 8 * * *'
+    # Mise à jour toutes les 6 heures
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 jobs:
@@ -11,25 +11,24 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Récupération du code
+      - name: 📥 Récupération du code
         uses: actions/checkout@v3
 
-      - name: Installation de Python
+      - name: 🐍 Installation Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      - name: Installation des librairies
+      - name: 📦 Installation des outils
         run: |
+          pip install --upgrade pip
           pip install -r requirements.txt
+          npm install -g firebase-tools
 
-      - name: Lancement du Script Ebooxly
-        # Le nom du script est important ici
+      - name: 🚀 Lancement du Script Ebooxly
         run: python update_ebooxly.py
 
-      - name: Installation de Firebase
-        run: npm install -g firebase-tools
-
-      - name: Déploiement vers Firebase
-        # Vérifie que le secret FIREBASE_TOKEN est bien ajouté
-        run: firebase deploy --token ${{ secrets.FIREBASE_TOKEN }} --only hosting
+      - name: 🔥 Déploiement vers Firebase
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: firebase deploy --only hosting --token "$FIREBASE_TOKEN"

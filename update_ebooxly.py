@@ -4,24 +4,26 @@ import os
 import datetime
 import json
 import random
+from html import escape            # <--- Ajouté pour le RSS
+from urllib.parse import quote     # <--- Ajouté pour les images
 
 # --- CONFIGURATION ---
 MY_SITE_URL = "https://ebooxly.com"
-# On tape directement dans la source de données du site (plus fiable que le HTML)
 MY_API_URL = "https://ebooxly.com/books_pages/page-1.json?v=1"
 
 # Google News (Culture, Littérature, Éducation en Arabe)
 AUTHORITY_RSS = "https://news.google.com/rss/search?q=كتب+روايات+ثقافة+أدب&hl=ar&gl=EG&ceid=EG:ar"
-OUTPUT_FILE = "public/index.html"
+OUTPUT_DIR = "public"  # Dossier de sortie
+if not os.path.exists(OUTPUT_DIR): os.makedirs(OUTPUT_DIR)
 
-# Images pour Google News (Thème : Livres, Bibliothèques, Écriture)
+# Images pour Google News
 THEMATIC_IMAGES = [
-    "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?auto=format&fit=crop&w=600&q=80", # Library
-    "https://images.unsplash.com/photo-1507842217121-ad5596e65d31?auto=format&fit=crop&w=600&q=80", # Open book
-    "https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?auto=format&fit=crop&w=600&q=80", # Reading
-    "https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=600&q=80", # Book pile
-    "https://images.unsplash.com/photo-1457369804613-52c61a468e7d?auto=format&fit=crop&w=600&q=80", # Pen and paper
-    "https://images.unsplash.com/photo-1519682337058-a5ca051231de?auto=format&fit=crop&w=600&q=80"  # Cover close up
+    "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?auto=format&fit=crop&w=600&q=80",
+    "https://images.unsplash.com/photo-1507842217121-ad5596e65d31?auto=format&fit=crop&w=600&q=80",
+    "https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?auto=format&fit=crop&w=600&q=80",
+    "https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=600&q=80",
+    "https://images.unsplash.com/photo-1457369804613-52c61a468e7d?auto=format&fit=crop&w=600&q=80",
+    "https://images.unsplash.com/photo-1519682337058-a5ca051231de?auto=format&fit=crop&w=600&q=80"
 ]
 FALLBACK_IMG = "https://ebooxly.com/imgs/book.png"
 
@@ -55,10 +57,11 @@ def get_external_news(rss_url, limit=4):
                 'link': entry.link, 
                 'img': img_src, 
                 'desc': desc,
-                'author': 'أخبار ثقافية', # "Cultural News"
-                'tag': 'ثقافة وأدب',      # "Culture & Lit"
+                'author': 'أخبار ثقافية',
+                'tag': 'ثقافة وأدب',
                 'source': 'Google News',
-                'is_mine': False
+                'is_mine': False,
+                'date': datetime.datetime.now() # Date actuelle pour le RSS
             })
             if len(links) >= limit: break
         return links
@@ -69,43 +72,29 @@ def get_external_news(rss_url, limit=4):
 def get_my_books():
     print(f"   -> 📚 Ebooxly API (JSON)...")
     try:
-        # On appelle le fichier JSON directement
         response = scraper.get(MY_API_URL)
-        
         if response.status_code != 200: 
             print(f"      [!] Erreur API: {response.status_code}")
             return []
 
-        # Le JSON contient une liste de livres dans 'items' ou directement en liste
         data = response.json()
         items = data if isinstance(data, list) else data.get('items', [])
-        
         my_links = []
         
         for book in items:
-            # Extraction des données du JSON eBooxly
             title = book.get('title', '')
             author = book.get('author', 'مؤلف غير معروف')
             img = book.get('image', FALLBACK_IMG)
             
-            # Reconstruction des liens (basé sur la logique JS du site)
-            # Les liens dépendent souvent de la lettre/auteur/titre
-            # Si le JSON donne un lien direct, on le prend, sinon on fabrique
-            # Ici on va essayer de fabriquer ou prendre ce qui existe
-            
-            # Note: Si le JSON ne contient pas d'URL complète, on pointe vers la recherche
-            # ou on essaie de construire l'URL si on a les slugs
             l_slug = book.get('letter', 'a')
             a_slug = book.get('author_slug', 'unknown')
             t_slug = book.get('title_slug', 'unknown')
             
             url = f"{MY_SITE_URL}/authors/{l_slug}/{a_slug}/{t_slug}.html"
             
-            # Correction image relative
             if img and not img.startswith('http'):
                 img = f"{MY_SITE_URL}/{img.lstrip('/')}"
 
-            # Catégories
             cats = book.get('categories', '')
             first_cat = cats.split('-')[0].strip() if cats else 'كتب عامة'
 
@@ -113,14 +102,15 @@ def get_my_books():
                 'title': title, 
                 'link': url, 
                 'img': img, 
-                'desc': '', # Pas de description longue dans le JSON liste
+                'desc': f"تحميل كتاب {title} للمؤلف {author}",
                 'author': author,
                 'tag': first_cat,
                 'source': 'eBooxly',
-                'is_mine': True
+                'is_mine': True,
+                'date': datetime.datetime.now()
             })
 
-            if len(my_links) >= 8: break # On prend 8 livres
+            if len(my_links) >= 8: break
         
         print(f"      > {len(my_links)} livres récupérés via API.")
         return my_links
@@ -129,8 +119,70 @@ def get_my_books():
         print(f"      [!] Erreur API : {e}")
         return []
 
+# --- NOUVELLE FONCTION RSS BLINDÉE (Comme VerdeVoice) ---
+def build_rss_feed(items_list):
+    print("📡 Génération du Flux RSS (public/feed.xml)...")
+    
+    RSS_TITLE = "eBooxly - المكتبة العربية"
+    RSS_LINK = MY_SITE_URL
+    RSS_DESC = "آخر الكتب المضافة والأخبار الثقافية"
+    
+    rss_items = ""
+    
+    for item in items_list:
+        title = escape(item['title'])
+        link = escape(item['link'])
+        desc = escape(item['desc'])
+        # Format date RFC-822
+        pub_date = item['date'].strftime("%a, %d %b %Y %H:%M:%S GMT")
+        
+        # --- MAGIE DES IMAGES (JPG FORCE) ---
+        img_source = item['img']
+        
+        # 1. Correction URL relative si besoin
+        if img_source and not img_source.startswith('http'):
+             img_source = MY_SITE_URL + "/" + img_source.lstrip('/')
+
+        # 2. Conversion via wsrv.nl en JPG
+        if img_source:
+            safe_u = quote(img_source, safe="")
+            # On demande explicitement du JPG pour Pinterest
+            img_final = f"https://wsrv.nl/?url={safe_u}&w=1200&output=jpg&q=100"
+        else:
+            img_final = FALLBACK_IMG
+
+        # 3. Sécurité XML
+        img_final = img_final.replace("&", "&amp;")
+        
+        img_tag = f'<enclosure url="{img_final}" type="image/jpeg" />'
+        
+        rss_items += f"""
+        <item>
+            <title>{title}</title>
+            <link>{link}</link>
+            <guid>{link}</guid>
+            <description>{desc}</description>
+            <pubDate>{pub_date}</pubDate>
+            {img_tag}
+        </item>"""
+        
+    rss_content = f"""<?xml version="1.0" encoding="UTF-8" ?>
+<rss version="2.0">
+<channel>
+    <title>{RSS_TITLE}</title>
+    <link>{RSS_LINK}</link>
+    <description>{RSS_DESC}</description>
+    <language>ar</language>
+    {rss_items}
+</channel>
+</rss>"""
+
+    with open(f"{OUTPUT_DIR}/feed.xml", "w", encoding="utf-8") as f:
+        f.write(rss_content)
+    print("✅ Flux RSS généré avec succès.")
+
 def generate_html():
-    print("1. Génération Design Arabe (RTL)...")
+    print("1. Récupération des données...")
     
     my_books = get_my_books()
     auth_news = get_external_news(AUTHORITY_RSS, limit=4)
@@ -139,24 +191,25 @@ def generate_html():
     if not my_books: my_books = []
     if not auth_news: auth_news = []
     
-    # Mélange : 2 livres, 1 news, 2 livres, 1 news...
+    # Mélange : 2 livres, 1 news...
     idx_news = 0
     for i, book in enumerate(my_books):
         final_list.append(book)
-        # Toutes les 2 livres, on insère une news si dispo
         if (i + 1) % 2 == 0 and idx_news < len(auth_news):
             final_list.append(auth_news[idx_news])
             idx_news += 1
             
-    # Ajouter le reste des news si il en reste
     while idx_news < len(auth_news):
         final_list.append(auth_news[idx_news])
         idx_news += 1
 
+    # --- GÉNÉRATION DU FLUX RSS ---
+    build_rss_feed(final_list)
+    # ------------------------------
+
     now_str = datetime.datetime.now().strftime("%Y/%m/%d")
     year = datetime.datetime.now().year
 
-    # JSON-LD pour les livres
     json_ld = {
         "@context": "https://schema.org",
         "@type": "Library",
@@ -285,15 +338,19 @@ def generate_html():
         css_type = "is-book" if item['is_mine'] else "is-news"
         tag_css = "tag-book" if item['is_mine'] else "tag-news"
         
-        # Gestion des erreurs d'image (onError)
-        # Si c'est un livre et que l'image plante -> Fallback Livre
-        # Si c'est une news et que l'image plante -> Fallback Thématique
         err_img = FALLBACK_IMG if item['is_mine'] else fallback
+        
+        # Optimisation WebP pour le site HTML aussi
+        img_html = item['img']
+        if "http" in img_html:
+             safe_u = quote(img_html, safe="")
+             # Pour le HTML on met du WebP (plus rapide)
+             img_html = f"https://wsrv.nl/?url={safe_u}&w=400&output=webp&q=80"
         
         html_content += f"""
         <article class="book-card {css_type}">
             <a href="{item['link']}" class="card-img" target="_blank">
-                <img src="{item['img']}" alt="{item['title']}" loading="lazy" onerror="this.src='{err_img}'">
+                <img src="{img_html}" alt="{item['title']}" loading="lazy" onerror="this.src='{err_img}'">
             </a>
             <div class="card-body">
                 <span class="card-tag {tag_css}">{item['tag']}</span>
@@ -320,10 +377,7 @@ def generate_html():
     </html>
     """
 
-    if not os.path.exists("public"):
-        os.makedirs("public")
-        
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+    with open(f"{OUTPUT_DIR}/index.html", "w", encoding="utf-8") as f:
         f.write(html_content)
     print("2. HTML Ebooxly (Arabe) généré.")
     return True

@@ -4,16 +4,16 @@ import os
 import datetime
 import json
 import random
-from html import escape            # <--- Ajouté pour le RSS
-from urllib.parse import quote     # <--- Ajouté pour les images
+from html import escape
+from urllib.parse import quote
 
 # --- CONFIGURATION ---
 MY_SITE_URL = "https://ebooxly.com"
-MY_API_URL = "https://ebooxly.com/books_pages/page-1.json?v=1"
+# On ne met plus d'URL fixe ici, elle sera générée aléatoirement
 
 # Google News (Culture, Littérature, Éducation en Arabe)
 AUTHORITY_RSS = "https://news.google.com/rss/search?q=كتب+روايات+ثقافة+أدب&hl=ar&gl=EG&ceid=EG:ar"
-OUTPUT_DIR = "public"  # Dossier de sortie
+OUTPUT_DIR = "public"
 if not os.path.exists(OUTPUT_DIR): os.makedirs(OUTPUT_DIR)
 
 # Images pour Google News
@@ -48,7 +48,11 @@ def get_external_news(rss_url, limit=4):
         links = []
         if not feed.entries: return []
 
-        for entry in feed.entries:
+        # On mélange les news aussi pour ne pas toujours avoir les mêmes en tête
+        entries = feed.entries
+        random.shuffle(entries)
+
+        for entry in entries:
             img_src = random.choice(THEMATIC_IMAGES)
             desc = clean_html(entry.description) if hasattr(entry, 'description') else ""
             
@@ -61,7 +65,7 @@ def get_external_news(rss_url, limit=4):
                 'tag': 'ثقافة وأدب',
                 'source': 'Google News',
                 'is_mine': False,
-                'date': datetime.datetime.now() # Date actuelle pour le RSS
+                'date': datetime.datetime.now()
             })
             if len(links) >= limit: break
         return links
@@ -70,15 +74,27 @@ def get_external_news(rss_url, limit=4):
         return []
 
 def get_my_books():
-    print(f"   -> 📚 Ebooxly API (JSON)...")
+    # --- MODIFICATION MAJEURE ICI ---
+    # On choisit une page au hasard entre 1 et 30 pour avoir des livres différents à chaque fois
+    random_page = random.randint(1, 30)
+    target_url = f"https://ebooxly.com/books_pages/page-{random_page}.json?v=1"
+    
+    print(f"   -> 📚 eBooxly API (Page {random_page} - Mode Aléatoire)...")
+    
     try:
-        response = scraper.get(MY_API_URL)
+        response = scraper.get(target_url)
         if response.status_code != 200: 
-            print(f"      [!] Erreur API: {response.status_code}")
-            return []
+            # Si la page au hasard n'existe pas (ex: page 30 trop loin), on se rabat sur la page 1
+            print(f"      [!] Page {random_page} vide, retour page 1.")
+            target_url = "https://ebooxly.com/books_pages/page-1.json?v=1"
+            response = scraper.get(target_url)
 
         data = response.json()
         items = data if isinstance(data, list) else data.get('items', [])
+        
+        # On mélange les livres de la page récupérée
+        random.shuffle(items)
+        
         my_links = []
         
         for book in items:
@@ -112,14 +128,13 @@ def get_my_books():
 
             if len(my_links) >= 8: break
         
-        print(f"      > {len(my_links)} livres récupérés via API.")
+        print(f"      > {len(my_links)} livres récupérés.")
         return my_links
 
     except Exception as e:
         print(f"      [!] Erreur API : {e}")
         return []
 
-# --- NOUVELLE FONCTION RSS BLINDÉE (Comme VerdeVoice) ---
 def build_rss_feed(items_list):
     print("📡 Génération du Flux RSS (public/feed.xml)...")
     
@@ -133,27 +148,20 @@ def build_rss_feed(items_list):
         title = escape(item['title'])
         link = escape(item['link'])
         desc = escape(item['desc'])
-        # Format date RFC-822
         pub_date = item['date'].strftime("%a, %d %b %Y %H:%M:%S GMT")
         
-        # --- MAGIE DES IMAGES (JPG FORCE) ---
         img_source = item['img']
         
-        # 1. Correction URL relative si besoin
         if img_source and not img_source.startswith('http'):
              img_source = MY_SITE_URL + "/" + img_source.lstrip('/')
 
-        # 2. Conversion via wsrv.nl en JPG
         if img_source:
             safe_u = quote(img_source, safe="")
-            # On demande explicitement du JPG pour Pinterest
             img_final = f"https://wsrv.nl/?url={safe_u}&w=1200&output=jpg&q=100"
         else:
             img_final = FALLBACK_IMG
 
-        # 3. Sécurité XML
         img_final = img_final.replace("&", "&amp;")
-        
         img_tag = f'<enclosure url="{img_final}" type="image/jpeg" />'
         
         rss_items += f"""
@@ -179,7 +187,7 @@ def build_rss_feed(items_list):
 
     with open(f"{OUTPUT_DIR}/feed.xml", "w", encoding="utf-8") as f:
         f.write(rss_content)
-    print("✅ Flux RSS généré avec succès.")
+    print("✅ Flux RSS généré.")
 
 def generate_html():
     print("1. Récupération des données...")
@@ -191,7 +199,7 @@ def generate_html():
     if not my_books: my_books = []
     if not auth_news: auth_news = []
     
-    # Mélange : 2 livres, 1 news...
+    # Mélange intelligent
     idx_news = 0
     for i, book in enumerate(my_books):
         final_list.append(book)
@@ -203,9 +211,7 @@ def generate_html():
         final_list.append(auth_news[idx_news])
         idx_news += 1
 
-    # --- GÉNÉRATION DU FLUX RSS ---
     build_rss_feed(final_list)
-    # ------------------------------
 
     now_str = datetime.datetime.now().strftime("%Y/%m/%d")
     year = datetime.datetime.now().year
@@ -245,7 +251,6 @@ def generate_html():
             a{{color:inherit;text-decoration:none;transition:.2s}}
             .container{{max-width:1100px;margin:0 auto;padding:0 15px}}
             
-            /* HEADER */
             nav {{
                 background:#ffffffcc; backdrop-filter:blur(6px);
                 border-bottom:2px solid var(--accent);
@@ -255,11 +260,9 @@ def generate_html():
             }}
             .logo {{ display:flex; align-items:center; gap:.5rem; font-weight:800; font-size:1.3rem; color:#1f2937; }}
             .logo span {{ background:var(--brand); color:#fff; padding:.2rem .5rem; border-radius:.5rem; }}
-            
             .nav-links a {{ font-weight:700; color:#1f2937; margin-left:15px; font-size:0.95rem; }}
             .nav-links a:hover {{ color:var(--brand); }}
 
-            /* GRID & CARDS */
             .main-title {{ text-align:center; margin:30px 0; font-weight:800; color:var(--text); }}
             .grid {{ 
                 display: grid; 
@@ -275,7 +278,6 @@ def generate_html():
             }}
             .book-card:hover {{ transform: translateY(-5px); border-color:var(--brand); }}
             
-            /* Design spécial pour News vs Livre */
             .is-news {{ border-top: 4px solid var(--accent); }}
             .is-book {{ border-top: 4px solid var(--brand); }}
 
@@ -285,8 +287,8 @@ def generate_html():
             .card-img img {{
                 width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s;
             }}
-            .is-book .card-img img {{ object-fit: contain; padding: 10px; }} /* Livres en entier */
-            .is-news .card-img img {{ object-fit: cover; }} /* News en plein cadre */
+            .is-book .card-img img {{ object-fit: contain; padding: 10px; }}
+            .is-news .card-img img {{ object-fit: cover; }}
             
             .book-card:hover img {{ transform: scale(1.05); }}
             
@@ -302,7 +304,6 @@ def generate_html():
             .card-title {{ font-size: 1rem; font-weight: 700; margin: 0 0 5px 0; line-height: 1.4; }}
             .card-sub {{ font-size: 0.85rem; color: #64748b; margin-bottom: 10px; }}
             
-            /* FOOTER */
             footer {{ background: #fff; border-top: 1px solid var(--line); padding: 30px; text-align: center; margin-top: auto; }}
             .f-links a {{ margin: 0 10px; color: var(--brand); font-weight: 700; font-size: 0.9rem; }}
             
@@ -326,7 +327,7 @@ def generate_html():
 
     <div class="container">
         <div style="text-align:center; padding: 20px 0; border-bottom:1px solid var(--line); margin-bottom:20px;">
-            <h2 style="margin:0; color:var(--brand);">أحدث الإضافات والأخبار</h2>
+            <h2 style="margin:0; color:var(--brand);">كتب مختارة وأخبار ثقافية</h2>
             <span style="color:#888; font-size:0.9rem;">تحديث: {now_str}</span>
         </div>
 
@@ -340,11 +341,9 @@ def generate_html():
         
         err_img = FALLBACK_IMG if item['is_mine'] else fallback
         
-        # Optimisation WebP pour le site HTML aussi
         img_html = item['img']
         if "http" in img_html:
              safe_u = quote(img_html, safe="")
-             # Pour le HTML on met du WebP (plus rapide)
              img_html = f"https://wsrv.nl/?url={safe_u}&w=400&output=webp&q=80"
         
         html_content += f"""

@@ -48,7 +48,7 @@ def get_external_news(rss_url, limit=4):
         links = []
         if not feed.entries: return []
 
-        # On mélange les news aussi pour ne pas toujours avoir les mêmes en tête
+        # On mélange les news aussi
         entries = feed.entries
         random.shuffle(entries)
 
@@ -74,8 +74,7 @@ def get_external_news(rss_url, limit=4):
         return []
 
 def get_my_books():
-    # --- MODIFICATION MAJEURE ICI ---
-    # On choisit une page au hasard entre 1 et 30 pour avoir des livres différents à chaque fois
+    # Page aléatoire entre 1 et 30
     random_page = random.randint(1, 30)
     target_url = f"https://ebooxly.com/books_pages/page-{random_page}.json?v=1"
     
@@ -84,7 +83,6 @@ def get_my_books():
     try:
         response = scraper.get(target_url)
         if response.status_code != 200: 
-            # Si la page au hasard n'existe pas (ex: page 30 trop loin), on se rabat sur la page 1
             print(f"      [!] Page {random_page} vide, retour page 1.")
             target_url = "https://ebooxly.com/books_pages/page-1.json?v=1"
             response = scraper.get(target_url)
@@ -92,7 +90,7 @@ def get_my_books():
         data = response.json()
         items = data if isinstance(data, list) else data.get('items', [])
         
-        # On mélange les livres de la page récupérée
+        # Mélange
         random.shuffle(items)
         
         my_links = []
@@ -135,6 +133,7 @@ def get_my_books():
         print(f"      [!] Erreur API : {e}")
         return []
 
+# --- FONCTION RSS BLINDÉE (TITRES COURTS + JPG) ---
 def build_rss_feed(items_list):
     print("📡 Génération du Flux RSS (public/feed.xml)...")
     
@@ -145,11 +144,24 @@ def build_rss_feed(items_list):
     rss_items = ""
     
     for item in items_list:
-        title = escape(item['title'])
+        
+        # --- 1. TITRE COURT (Pinterest Max 100) ---
+        raw_title = item['title']
+        if len(raw_title) > 100:
+            raw_title = raw_title[:97] + "..."
+        
+        title = escape(raw_title)
         link = escape(item['link'])
-        desc = escape(item['desc'])
+        
+        # --- 2. DESCRIPTION COURTE (Pinterest Max 500) ---
+        raw_desc = item['desc']
+        if len(raw_desc) > 500:
+            raw_desc = raw_desc[:497] + "..."
+        desc = escape(raw_desc)
+        
         pub_date = item['date'].strftime("%a, %d %b %Y %H:%M:%S GMT")
         
+        # --- 3. IMAGE JPG FORCE ---
         img_source = item['img']
         
         if img_source and not img_source.startswith('http'):
@@ -157,11 +169,13 @@ def build_rss_feed(items_list):
 
         if img_source:
             safe_u = quote(img_source, safe="")
+            # On demande explicitement du JPG
             img_final = f"https://wsrv.nl/?url={safe_u}&w=1200&output=jpg&q=100"
         else:
             img_final = FALLBACK_IMG
 
         img_final = img_final.replace("&", "&amp;")
+        
         img_tag = f'<enclosure url="{img_final}" type="image/jpeg" />'
         
         rss_items += f"""
@@ -187,7 +201,7 @@ def build_rss_feed(items_list):
 
     with open(f"{OUTPUT_DIR}/feed.xml", "w", encoding="utf-8") as f:
         f.write(rss_content)
-    print("✅ Flux RSS généré.")
+    print("✅ Flux RSS généré (Compatible Pinterest).")
 
 def generate_html():
     print("1. Récupération des données...")
@@ -199,7 +213,6 @@ def generate_html():
     if not my_books: my_books = []
     if not auth_news: auth_news = []
     
-    # Mélange intelligent
     idx_news = 0
     for i, book in enumerate(my_books):
         final_list.append(book)

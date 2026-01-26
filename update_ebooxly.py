@@ -201,7 +201,7 @@ def build_rss_feed(items_list):
 
     with open(f"{OUTPUT_DIR}/feed.xml", "w", encoding="utf-8") as f:
         f.write(rss_content)
-    print("✅ Flux RSS généré (Compatible Pinterest).")
+    print("✅ Flux RSS généré (Compatible Pinterest & Facebook).")
 
 def generate_html():
     print("1. Récupération des données...")
@@ -224,7 +224,9 @@ def generate_html():
         final_list.append(auth_news[idx_news])
         idx_news += 1
 
-    build_rss_feed(final_list)
+    # --- MODIFICATION: ON PASSE UNIQUEMENT NOS LIVRES AU RSS ---
+    build_rss_feed(my_books)
+    # -----------------------------------------------------------
 
     now_str = datetime.datetime.now().strftime("%Y/%m/%d")
     year = datetime.datetime.now().year

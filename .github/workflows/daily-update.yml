@@ -2,8 +2,8 @@ name: 📚 Ebooxly Auto-Update
 
 on:
   schedule:
-    # Mise à jour toutes les 6 heures
-    - cron: '0 */6 * * *'
+    # Exécution à 11h UTC (12h Maroc) et 23h UTC (00h Maroc)
+    - cron: '0 11,23 * * *'
   workflow_dispatch:
 
 jobs:
